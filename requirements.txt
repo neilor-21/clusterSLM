@@ -1,0 +1,6 @@
+networkx>=3.0,<4.0
+# Optional graph visualization dependency used by graph.plot_graph
+matplotlib>=3.7
+
+# Multi-language syntax parsing for JavaScript, JSX, TypeScript and TSX
+tree-sitter-language-pack>=0.9.0,<1.0
