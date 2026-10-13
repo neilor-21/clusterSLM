@@ -1,0 +1,8 @@
+# Optional runtime dependencies for local/Hugging Face inference.
+# Install only when you are ready to run the model; this is not needed for static tests.
+torch>=2.2
+transformers>=4.45,<5
+accelerate>=0.34
+peft>=0.13
+safetensors>=0.4
+# bitsandbytes is optional and primarily useful on supported Linux/CUDA environments.

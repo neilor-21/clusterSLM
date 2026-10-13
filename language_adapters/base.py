@@ -10,9 +10,14 @@ class ImportInfo:
 
     module: str
     level: int = 0
+    # Local binding -> exported symbol name. For example, {"verify": "check_user"}.
+    names: dict[str, str] = field(default_factory=dict)
+    # Local name bound to a module namespace, e.g. `import auth as a`.
+    module_alias: str | None = None
 
     def __repr__(self):
-        return f"ImportInfo(module={self.module!r}, level={self.level})"
+        return (f"ImportInfo(module={self.module!r}, level={self.level}, "
+                f"names={self.names!r}, module_alias={self.module_alias!r})")
 
 
 @dataclass
@@ -30,6 +35,8 @@ class FileInfo:
     functions: list = field(default_factory=list)
     calls: list = field(default_factory=list)
     call_map: dict = field(default_factory=dict)
+    # Qualified symbol name -> source span metadata (1-based inclusive lines).
+    symbol_spans: dict = field(default_factory=dict)
 
 
 @runtime_checkable

@@ -1,7 +1,7 @@
 import json
 
 
-def generate_report(reconciled_findings, output_path="clusterslm_report.json"):
+def generate_report(reconciled_findings, output_path="clusterslm_report.json", execution_seconds=None):
     """
     Process 6.0: Result Aggregation & Reporting.
     Generates the final vulnerability report and JSON artifact.
@@ -11,10 +11,12 @@ def generate_report(reconciled_findings, output_path="clusterslm_report.json"):
     print("=" * 50)
 
     report = {
-        "project": "ClustersLM",
+        "project": "ClusterSLM",
         "total_vulnerabilities": len(reconciled_findings),
         "findings": reconciled_findings,
     }
+    if execution_seconds is not None:
+        report["execution_time_seconds"] = round(float(execution_seconds), 4)
 
     # Write the machine-readable artifact
     with open(output_path, "w", encoding="utf-8") as f:

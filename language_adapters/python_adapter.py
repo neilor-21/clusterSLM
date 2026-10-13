@@ -12,27 +12,39 @@ class _PythonVisitor(ast.NodeVisitor):
 
     def visit_Import(self, node):
         for alias in node.names:
-            self.info.imports.append(ImportInfo(alias.name))
+            # `import auth as a` binds `a`; plain `import auth` binds `auth`.
+            local_name = alias.asname or alias.name.split(".")[0]
+            self.info.imports.append(ImportInfo(alias.name, module_alias=local_name))
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node):
-        self.info.imports.append(ImportInfo(node.module or "", node.level))
+        imported_names = {}
+        for alias in node.names:
+            if alias.name != "*":
+                imported_names[alias.asname or alias.name] = alias.name
+        self.info.imports.append(ImportInfo(node.module or "", node.level, names=imported_names))
         self.generic_visit(node)
 
     def visit_ClassDef(self, node):
         self.info.classes.append(node.name)
+        qualified = ".".join(self.scope_stack + [node.name])
+        self.info.symbol_spans[qualified] = {"start_line": node.lineno, "end_line": node.end_lineno, "kind": "class"}
         self.scope_stack.append(node.name)
         self.generic_visit(node)
         self.scope_stack.pop()
 
     def visit_FunctionDef(self, node):
         self.info.functions.append(node.name)
+        qualified = ".".join(self.scope_stack + [node.name])
+        self.info.symbol_spans[qualified] = {"start_line": node.lineno, "end_line": node.end_lineno, "kind": "function"}
         self.scope_stack.append(node.name)
         self.generic_visit(node)
         self.scope_stack.pop()
 
     def visit_AsyncFunctionDef(self, node):
         self.info.functions.append(node.name)
+        qualified = ".".join(self.scope_stack + [node.name])
+        self.info.symbol_spans[qualified] = {"start_line": node.lineno, "end_line": node.end_lineno, "kind": "function"}
         self.scope_stack.append(node.name)
         self.generic_visit(node)
         self.scope_stack.pop()

@@ -4,22 +4,25 @@ from pathlib import Path
 from graph import get_module_name
 
 
-def extract_symbol_snippet(source_code, symbol_name):
-    """
-    Extracts only the specific class or function code block from source code using AST.
-    """
+def extract_symbol_snippet(source_code, symbol_name, symbol_spans=None):
+    """Extract a symbol using adapter-provided spans, with a Python AST fallback."""
+    if symbol_spans:
+        span = symbol_spans.get(symbol_name)
+        if span is None:
+            span = symbol_spans.get(symbol_name.split(".")[-1])
+        if span:
+            lines = source_code.splitlines()
+            start = max(1, int(span["start_line"]))
+            end = min(len(lines), int(span["end_line"]))
+            return "\n".join(lines[start - 1:end])
+
     try:
         tree = ast.parse(source_code)
         target_name = symbol_name.split(".")[-1]
-
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                if node.name == target_name:
-                    lines = source_code.splitlines()
-                    # ast line numbers are 1-indexed
-                    start = node.lineno - 1
-                    end = node.end_lineno
-                    return "\n".join(lines[start:end])
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == target_name:
+                lines = source_code.splitlines()
+                return "\n".join(lines[node.lineno - 1:node.end_lineno])
     except Exception:
         pass
     return None
@@ -39,21 +42,39 @@ def build_partition_context(partition, boundaries, files_data, repo_path):
     for f in files_data:
         mod_name = get_module_name(f.path, repo_path.parent)
         try:
-            file_sources[mod_name] = Path(f.path).read_text(encoding="utf-8")
+            file_sources[mod_name] = {
+                "source": Path(f.path).read_text(encoding="utf-8"),
+                "symbol_spans": getattr(f, "symbol_spans", {}),
+            }
         except Exception:
             continue
 
     # 2. Extract ONLY the relevant function/class code snippets
     scoped_code = {}
+    symbol_languages = {}
+    symbol_kinds = {}
     for sym in internal_symbols:
         parts = sym.split(".")
         # Determine the module part (e.g., Test.db.query_builder)
         for i in range(len(parts), 0, -1):
             possible_mod = ".".join(parts[:i])
             if possible_mod in file_sources:
-                snippet = extract_symbol_snippet(file_sources[possible_mod], parts[-1])
+                file_data = file_sources[possible_mod]
+                local_symbol = ".".join(parts[i:])
+                snippet = extract_symbol_snippet(
+                    file_data["source"], local_symbol, file_data["symbol_spans"]
+                )
                 if snippet:
                     scoped_code[sym] = snippet
+                    matching_file = next(
+                        (f for f in files_data
+                         if get_module_name(f.path, repo_path.parent) == possible_mod),
+                        None,
+                    )
+                    symbol_languages[sym] = getattr(matching_file, "language", "unknown")
+                    symbol_kinds[sym] = span_kind = (
+                        file_data["symbol_spans"].get(local_symbol, {}).get("kind", "symbol")
+                    )
                 break
 
     # 3. Boundaries
@@ -82,6 +103,8 @@ def build_partition_context(partition, boundaries, files_data, repo_path):
         "boundary_incoming": incoming,
         "boundary_outgoing": outgoing,
         "scoped_code": scoped_code,
+        "symbol_languages": symbol_languages,
+        "symbol_kinds": symbol_kinds,
     }
 
 

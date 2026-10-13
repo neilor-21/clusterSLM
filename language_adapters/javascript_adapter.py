@@ -79,18 +79,24 @@ class JavaScriptAdapter:
                 if name_node is not None:
                     name = _text(name_node, source)
                     info.classes.append(name)
+                    qualified = ".".join(scope + [name])
+                    info.symbol_spans[qualified] = {"start_line": node.start_point.row + 1, "end_line": node.end_point.row + 1, "kind": "class"}
                     next_scope = scope + [name]
             elif node_type in {"function_declaration", "generator_function_declaration"}:
                 name_node = _named_child(node, "name")
                 if name_node is not None:
                     name = _text(name_node, source)
                     info.functions.append(name)
+                    qualified = ".".join(scope + [name])
+                    info.symbol_spans[qualified] = {"start_line": node.start_point.row + 1, "end_line": node.end_point.row + 1, "kind": "function"}
                     next_scope = scope + [name]
             elif node_type in {"method_definition", "method_signature"}:
                 name_node = _named_child(node, "name")
                 if name_node is not None:
                     name = _text(name_node, source)
                     info.functions.append(name)
+                    qualified = ".".join(scope + [name])
+                    info.symbol_spans[qualified] = {"start_line": node.start_point.row + 1, "end_line": node.end_point.row + 1, "kind": "function"}
                     next_scope = scope + [name]
             elif node_type in {"lexical_declaration", "variable_declaration"}:
                 # Capture common const handler = (...) => {} and function expressions.
@@ -104,6 +110,8 @@ class JavaScriptAdapter:
                     }:
                         name = _text(name_node, source)
                         info.functions.append(name)
+                        qualified = ".".join(scope + [name])
+                        info.symbol_spans[qualified] = {"start_line": value_node.start_point.row + 1, "end_line": value_node.end_point.row + 1, "kind": "function"}
                         next_scope = scope + [name]
 
             if node_type == "import_statement":
@@ -113,7 +121,34 @@ class JavaScriptAdapter:
                 if not match:
                     match = re.search(r"^\s*import\s*['\"]([^'\"]+)['\"]", raw)
                 if match:
-                    info.imports.append(ImportInfo(match.group(1)))
+                    module = match.group(1)
+                    clause = raw[:match.start()].strip()
+                    names = {}
+                    module_alias = None
+                    # Named imports: import { checkUser as verify } from "./auth".
+                    brace_match = re.search(r"import\s*\{([^}]*)\}", clause, re.S)
+                    if brace_match:
+                        for item in brace_match.group(1).split(","):
+                            item = item.strip()
+                            if not item:
+                                continue
+                            parts = re.split(r"\s+as\s+", item)
+                            imported = parts[0].strip()
+                            local = parts[-1].strip()
+                            if imported and local:
+                                names[local] = imported
+                    else:
+                        # Namespace imports: import * as api from "./api".
+                        namespace_match = re.search(r"import\s+\*\s+as\s+([\w$]+)", clause)
+                        if namespace_match:
+                            module_alias = namespace_match.group(1)
+                        else:
+                            # Default imports are recorded as a binding but are not
+                            # assumed to equal a named function export.
+                            default_match = re.match(r"import\s+([\w$]+)\s*$", clause)
+                            if default_match:
+                                module_alias = default_match.group(1)
+                    info.imports.append(ImportInfo(module, names=names, module_alias=module_alias))
             elif node_type == "call_expression":
                 function_node = _named_child(node, "function")
                 callee = _callee_name(function_node, source)

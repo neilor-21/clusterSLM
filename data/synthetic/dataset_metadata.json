@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "seed": 42,
+  "repeats": 5,
+  "total": 50,
+  "train": 40,
+  "test": 10,
+  "warning": "Smoke-test data only; do not report these results as benchmark performance."
+}

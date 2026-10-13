@@ -34,7 +34,7 @@ def get_module_name(file_path, repo_path):
 def build_module_map(files, repo_path):
     module_map = {}
     for file in files:
-        module_name = get_module_name(file.path, repo_path.parent)
+        module_name = get_module_name(Path(file.path).resolve(), Path(repo_path).resolve().parent)
         module_map[module_name] = file.path
     return module_map
 
@@ -62,11 +62,11 @@ def build_dependency_graph(files, repo_path):
     module_map = build_module_map(files, repo_path)
 
     for file in files:
-        source_module = get_module_name(file.path, repo_path.parent)
+        source_module = get_module_name(Path(file.path).resolve(), Path(repo_path).resolve().parent)
         graph.add_node(source_module, path=str(file.path))
 
     for file in files:
-        source_module = get_module_name(file.path, repo_path.parent)
+        source_module = get_module_name(Path(file.path).resolve(), Path(repo_path).resolve().parent)
 
         for import_info in file.imports:
             target_path = resolve_import(import_info, module_map, source_module)
@@ -74,17 +74,44 @@ def build_dependency_graph(files, repo_path):
             if target_path is None:
                 continue
 
-            target_module = get_module_name(target_path, repo_path.parent)
+            target_module = get_module_name(Path(target_path).resolve(), Path(repo_path).resolve().parent)
             graph.add_edge(source_module, target_module)
 
     return graph
 
 
-def build_symbol_graph(edges):
-    """
-    Builds the Level-3 Function/Call Dependency Graph using NetworkX.
+def build_symbol_graph(edges, dependency_edges=None, files=None, repo_path=None):
+    """Build a unified graph of calls and repository-local module dependencies.
+
+    ``edges`` remains the legacy iterable of (caller, callee) call edges.
+    ``dependency_edges`` accepts (source, target, relation) triples, currently
+    used for resolved import relationships. Optional file metadata adds module
+    nodes even when a file has no calls or imports.
     """
     G = nx.DiGraph()
+
+    if files is not None and repo_path is not None:
+        for file in files:
+            module = get_module_name(Path(file.path).resolve(), Path(repo_path).resolve().parent)
+            language = getattr(file, "language", "unknown")
+            G.add_node(module, node_type="module", language=language, path=str(file.path))
+            # Add every declared symbol, not just functions that happen to make
+            # calls. This preserves leaf functions for context extraction and
+            # ensures isolated code is represented in the repository graph.
+            spans = getattr(file, "symbol_spans", {}) or {}
+            for local_name, span in spans.items():
+                symbol = f"{module}.{local_name}"
+                G.add_node(
+                    symbol,
+                    node_type="symbol",
+                    language=language,
+                    path=str(file.path),
+                    symbol_name=local_name,
+                    symbol_kind=span.get("kind", "symbol"),
+                    start_line=span.get("start_line"),
+                    end_line=span.get("end_line"),
+                )
+                G.add_edge(module, symbol, relation="CONTAINS")
 
     # We filter out highly common built-ins so they don't skew the partitioning algorithm
     # (e.g., we don't want two unrelated functions clustered together just because they both call len())
@@ -107,7 +134,18 @@ def build_symbol_graph(edges):
 
     for caller, callee in edges:
         if callee not in ignore_builtins:
-            G.add_edge(caller, callee)
+            if caller not in G:
+                G.add_node(caller, node_type="symbol")
+            if callee not in G:
+                G.add_node(callee, node_type="symbol")
+            G.add_edge(caller, callee, relation="CALLS")
+
+    for source, target, relation in (dependency_edges or []):
+        if source not in G:
+            G.add_node(source, node_type="module")
+        if target not in G:
+            G.add_node(target, node_type="module")
+        G.add_edge(source, target, relation=relation)
 
     return G
 

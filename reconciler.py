@@ -23,6 +23,31 @@ def reconcile_findings(findings_list, boundaries, partitions):
             issue["partition_id"] = f["partition_id"]
             all_issues.append(issue)
 
+    # Merge duplicate reports from static and model engines by exact symbol/CWE.
+    # Keep the strongest confidence, retain detector provenance, and avoid claiming
+    # that two engines independently prove exploitability.
+    def confidence_of(item):
+        try:
+            return float(item.get("confidence", 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    deduplicated = {}
+    for issue in all_issues:
+        key = (issue.get("symbol", issue.get("function", "<unknown>")), issue.get("cwe", ""))
+        if key not in deduplicated:
+            deduplicated[key] = dict(issue)
+            continue
+        previous = deduplicated[key]
+        detectors = set(str(previous.get("detector", "unknown")).split(","))
+        detectors.update(str(issue.get("detector", "unknown")).split(","))
+        if confidence_of(issue) > confidence_of(previous):
+            deduplicated[key] = dict(issue)
+        chosen = deduplicated[key]
+        chosen["detector"] = ",".join(sorted(x for x in detectors if x))
+        chosen["validation_status"] = "needs_review"
+    all_issues = list(deduplicated.values())
+
     reconciled_results = []
 
     for issue in all_issues:

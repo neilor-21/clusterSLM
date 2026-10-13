@@ -7,6 +7,16 @@ def partition_graph(graph):
     Process 3.0: Graph-Guided Repository Partitioning.
     Uses modularity-based community detection to find natural clusters.
     """
+    # Community detection requires edges; preserve isolated modules as singleton
+    # partitions instead of allowing modularity calculation to divide by zero.
+    if graph.number_of_nodes() == 0:
+        return []
+    if graph.number_of_edges() == 0:
+        return [
+            {"partition_id": i + 1, "nodes": [node], "subgraph": graph.subgraph([node]).copy()}
+            for i, node in enumerate(sorted(graph.nodes()))
+        ]
+
     # Community detection algorithms generally require an undirected graph
     undirected_graph = graph.to_undirected()
 
